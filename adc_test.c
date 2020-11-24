@@ -1,23 +1,15 @@
 /*
-
 rawMCP3202.c
 Public Domain
 2016-03-20
-
 gcc -Wall -pthread -o rawMCP3202 rawMCP3202.c -lpigpio
-
 This code shows how to bit bang SPI using DMA.
-
 Using DMA to bit bang allows for two advantages
-
 1) the time of the SPI transaction can be guaranteed to within a
    microsecond or so.
-
 2) multiple devices of the same type can be read or written
   simultaneously.
-
 This code shows how to read more than one MCP3202 at a time.
-
 Each MCP3202 shares the SPI clock, MOSI, and slave select lines but has
 a unique MISO line.
 */
@@ -44,9 +36,9 @@ a unique MISO line.
 
 #define BUFFER 250       // Generally make this buffer as large as possible.
 
-#define REPEAT_MICROS 40 // Reading every x microseconds.
+#define REPEAT_MICROS 100 // Reading every x microseconds.
 
-#define SAMPLES 2000000  // Number of samples to take,
+#define SAMPLES 1000  // Number of samples to take,
 
 int MISO[ADCS]={MISO1}; // MISO2, MISO3, MISO4, MISO5};
 
@@ -95,6 +87,9 @@ void getReading(
 
 int main(int argc, char *argv[])
 {
+   FILE *fp = fopen("arr_data.txt", "wb");
+   float arr_intv[1000];
+   char char_intv [8][1000];
    int i, wid, offset;
    char buf[2];
    gpioPulse_t final[2];
@@ -107,6 +102,7 @@ int main(int argc, char *argv[])
    double start, end;
    int pause;
    double dob_val;
+   int s;
 
    if (argc > 1) pause = atoi(argv[1]); else pause =0;
 
@@ -124,14 +120,11 @@ int main(int argc, char *argv[])
 
    /*
    MCP3202 12-bit ADC 2 channels
-
    1  2  3  4  5  6   7   8  9  10 11 12 13 14 15 16 17
    SB SD OS MS NA B11 B10 B9 B8 B7 B6 B5 B4 B3 B2 B1 B0
-
    SB  1  1
    OS  0  0=ch0, 1=ch1 (in single mode)
    MS  0  0=tx lsb first after tx msb first
-
    MCP3204 modification for single-ended ch0 config
    SB 1 
    SD 1
@@ -144,7 +137,6 @@ int main(int argc, char *argv[])
       Now construct lots of bit banged SPI reads.  Each ADC reading
       will be stored separately.  We need to ensure that the
       buffer is big enough to cope with any reasonable rescehdule.
-
       In practice make the buffer as big as you can.
    */
 
@@ -247,6 +239,9 @@ int main(int argc, char *argv[])
 
       while (now_reading != reading)
       {
+
+	 //Add loop that collects 1000 samples
+
          /*
             Each reading uses BITS OOL.  The position of this readings
             OOL are calculated relative to the waves top OOL.
@@ -263,8 +258,13 @@ int main(int argc, char *argv[])
 	    
 	    //switched from 4 shifts left to 5 shifts left
             val = (rx[i*2]<<4) + (rx[(i*2)+1]>>4);
-	    dob_val =val * 0.00080566; //value multiplied by resolution (3.3/4096)
+	    dob_val =val * 0.00080566 - 1.65; //value multiplied by resolution (3.3/4096)
             printf(" %d\t %f",val, dob_val);
+
+	    //store into array 
+	    //arr_intv[i] = dob_val;
+	    //
+	    s = snprintf(char_intv[i], sizeof(char_intv[i]), "%f", dob_val);
          }
 
          printf("\n");
@@ -281,10 +281,14 @@ int main(int argc, char *argv[])
 
    fprintf(stderr, "ending...\n");
 
+   //Write samples to file
+
    if (pause) time_sleep(pause);
 
    gpioTerminate();
 
+   fwrite(char_intv, sizeof(char), sizeof(char_intv), fp);
+   fclose(fp);
+
    return 0;
 }
-
