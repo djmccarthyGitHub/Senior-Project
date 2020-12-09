@@ -17,7 +17,9 @@ a unique MISO line.
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+//#include <gnuplot.h>
 
+#include <wiringPi.h>
 #include <pigpio.h>
 
 #define SPI_SS 8 // GPIO for slave select.
@@ -38,7 +40,7 @@ a unique MISO line.
 
 #define REPEAT_MICROS 100 // Reading every x microseconds.
 
-#define SAMPLES 1000  // Number of samples to take,
+#define SAMPLES 500000  // Number of samples to take,
 
 int MISO[ADCS]={MISO1}; // MISO2, MISO3, MISO4, MISO5};
 
@@ -103,10 +105,16 @@ int main(int argc, char *argv[])
    int pause;
    double dob_val;
    int s;
+   //double data_arr[1000];
+
 
    if (argc > 1) pause = atoi(argv[1]); else pause =0;
 
    if (gpioInitialise() < 0) return 1;
+   
+   //set pin for communication between adc and FFT
+   gpioSetMode(26, PI_OUTPUT);
+   gpioWrite(26, 0);
 
    // Need to set GPIO as outputs otherwise wave will have no effect.
 
@@ -236,6 +244,9 @@ int main(int argc, char *argv[])
       now_reading = (float) cb / cbs_per_reading;
 
       // Loop gettting the fresh readings.
+      //
+      // Do nothing while sensor does no detect
+	gpioWrite(26, 0);
 
       while (now_reading != reading)
       {
@@ -246,10 +257,11 @@ int main(int argc, char *argv[])
             Each reading uses BITS OOL.  The position of this readings
             OOL are calculated relative to the waves top OOL.
          */
-         getReading(
-            ADCS, MISO, topOOL - ((reading%BUFFER)*BITS) - 1, 2, BITS, rx);
+         getReading(ADCS, MISO, topOOL - ((reading%BUFFER)*BITS) - 1, 2, BITS, rx);
 
          printf("%d", ++sample);
+
+	 
 
          for (i=0; i<ADCS; i++)
          {
@@ -260,12 +272,21 @@ int main(int argc, char *argv[])
             val = (rx[i*2]<<4) + (rx[(i*2)+1]>>4);
 	    dob_val =val * 0.00080566 - 1.65; //value multiplied by resolution (3.3/4096)
             printf(" %d\t %f",val, dob_val);
+	    //data_arr[sample % 1000] = dob_val;
 
 	    //store into array 
 	    //arr_intv[i] = dob_val;
 	    //
 	    s = snprintf(char_intv[i], sizeof(char_intv[i]), "%f", dob_val);
+	    fprintf(fp, "%s\n", char_intv[i]);
+
+	    printf(" %s",char_intv[i]);
          }
+	 
+	 if((sample % 1000) == 999) {
+	 	//give OK to FFT algorithm		
+		gpioWrite(26, 1); 
+	 }	
 
          printf("\n");
 
@@ -287,8 +308,10 @@ int main(int argc, char *argv[])
 
    gpioTerminate();
 
-   fwrite(char_intv, sizeof(char), sizeof(char_intv), fp);
+   /*int written = fwrite(char_intv, sizeof(char), sizeof(char_intv), fp);
+   if (written == 0) printf("Error\n");*/
    fclose(fp);
 
    return 0;
+   gpioWrite(26, 0);
 }
