@@ -1,14 +1,24 @@
+/* 
+ * ADC initialization 
+ * This code was taken entirely from the PIGPIO library's example page: 
+ * http://abyz.me.uk/rpi/pigpio/examples.html under SPI Bit Bang 3202 link.
+ * We slightly modified the code to instead work with our MCP3204 and only one
+ * ADC. This required only a few changes to certain definitions and variables.
+ * Only part of the example code has been pasted to this file because we 
+ * only want our ADC initialization to be called once. The rest of the modified
+ * code can be found in adc.c
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-//#include <gnuplot.h>
 
 #include <wiringPi.h>
 #include <pigpio.h>
 
 #define SPI_SS 8 // GPIO for slave select.
 
-#define ADCS 1    // Number of connected MCP3202.
+#define ADCS 1    // Number of connected MCP3202. (MCP3204 for us)
 
 #define BITS 12            // Bits per reading.
 #define BX 8               // Bit position of data bit B11.
@@ -27,10 +37,6 @@
 #define FS 10000
 #define MAX_RUNTIME 60
 #define MAX_FFTS 6000
-
-//#define SAMPLES 500000  // Number of samples to take,
-
-//int MISO[ADCS]={MISO1}; // MISO2, MISO3, MISO4, MISO5};
 
 float t[MAX_FFTS];
 int count;
@@ -68,21 +74,6 @@ int adc_ini(int *botCB,int *topOOL,float *cbs_per_reading) {
    gpioWaveAddNew(); // Flush any old unused wave data.
 
    offset = 0;
-
-   /*
-   MCP3202 12-bit ADC 2 channels
-   1  2  3  4  5  6   7   8  9  10 11 12 13 14 15 16 17
-   SB SD OS MS NA B11 B10 B9 B8 B7 B6 B5 B4 B3 B2 B1 B0
-   SB  1  1
-   OS  0  0=ch0, 1=ch1 (in single mode)
-   MS  0  0=tx lsb first after tx msb first
-   MCP3204 modification for single-ended ch0 config
-   SB 1 
-   SD 1
-   D2 X
-   D1 0
-   D0 0
-   */
 
    /*
       Now construct lots of bit banged SPI reads.  Each ADC reading
