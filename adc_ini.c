@@ -1,7 +1,7 @@
 /* 
  * ADC initialization 
  * This code was taken entirely from the PIGPIO library's example page: 
- * http://abyz.me.uk/rpi/pigpio/examples.html under SPI Bit Bang 3202 link.
+ * http://abyz.me.uk/rpi/pigpio/examples.html under the 'SPI Bit Bang 3202' link.
  * We slightly modified the code to instead work with our MCP3204 and only one
  * ADC. This required only a few changes to certain definitions and variables.
  * Only part of the example code has been pasted to this file because we 
