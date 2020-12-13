@@ -1,4 +1,18 @@
 /*
+ * This is the file called to perform ADC on our signal 
+ * and store the values collected in data_arr[]. This file
+ * also calls the FFT every 1000 samples collected (approximately
+ * 0.1 seconds due to our sampling frequency). This code runs as long
+ * as determined by the FFT algorithm's changes to the global variable Most of this
+ * code is taken from the pigpio library's example code page: 
+ * http://abyz.me.uk/rpi/pigpio/examples.html under the 'SPI bit
+ * bang MCP3202' link. We have modified to code to work for our 
+ * MCP3204 and included the ADC initialization in adc_ini.c. 
+ * Below this comment is the original code's disclaimer/explanation
+ */
+
+
+/*
 rawMCP3202.c
 Public Domain
 2016-03-20
@@ -17,7 +31,6 @@ a unique MISO line.
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-//#include <gnuplot.h>
 #include <pigpio.h>
 #include "adc.h"
 
@@ -47,10 +60,10 @@ a unique MISO line.
 #define MAX_FFTS 6000 //MAX_RUNTIME * FS /NOS
 #define FLATLINE 40
 
-int MISO[ADCS]={MISO1}; // MISO2, MISO3, MISO4, MISO5};
+int MISO[ADCS]={MISO1}; 
 float t[MAX_FFTS]; //index is number of FFTs
-float freq_peak[MAX_FFTS]; 
-float accel_peak[MAX_FFTS];
+float freq_peak[MAX_FFTS]; //FFT computed peak frequencies reached
+float accel_peak[MAX_FFTS]; //FFT computed frequency acceleration
 int count; //number of FFTS
 int flag;
 float start_freq, end_freq;
@@ -114,7 +127,7 @@ int adc(int botCB, int topOOL, float *cbs_per_reading)
    int cb, reading, now_reading;
    //float cbs_per_reading;
    //rawWaveInfo_t rwi;
-   double start, end;
+   double start, end; 
    int pause;
    double dob_val;
    int s;
@@ -123,18 +136,32 @@ int adc(int botCB, int topOOL, float *cbs_per_reading)
    thres_passed = 0.0;
    
    //if (argc > 1) pause = atoi(argv[1]); else pause =0;
-   count = 0;
-   sample = 0;
+   count = 0; //number of FFTs taken
+   sample = 0; //number of samples taken
    reading = 0;
    pause=0;
-   start_freq = 0;
+   
+   //start_freq used in FFT algorithm to determine cut-off
+   // (determined from avg of first 10 FFTs)
+   // Reset at being of new ADC
+   start_freq = 0; 
+   
+   //similar to start_freq, determines cut-off 
+   //for position thres stop method
    end_freq = 0;
    start = time_time();
+   
+   //repeat is used for flatline stop method
+   // incremented in FFT but reset for each ADC
+   //call
    repeat = 0;
-   test = repeat;
+   
+   //Determines how many more times we loop
+   //before stopping dispension (determined
+   //in algorithm, reset for each ADC call)
    count_thres = (float)MAX_FFTS;
 
-//printf("cbs_per_block: %f %d %d\n", *cbs_per_reading, botCB, topOOL);
+   //printf("cbs_per_block: %f %d %d\n", *cbs_per_reading, botCB, topOOL);
    
    while (!gpioRead(25) && count <= count_thres) //(sample<SAMPLES)
    {
@@ -186,13 +213,9 @@ int adc(int botCB, int topOOL, float *cbs_per_reading)
 	 
 	 if((sample % NOS) == NOS - 1) {
 		count++;
-	 	//give OK to FFT algorithm		
-		//if (!flag) {
-			fft_algo(data_arr);
-			//if (flag && repeat < FLATLINE) count_thres = count * 1.75;
-			//else count_thres = count + 1;
-
-		//}
+	 	
+		//give OK to FFT algorithm		
+		fft_algo(data_arr);
 	 }	
 
          //printf("\n");
@@ -209,11 +232,8 @@ int adc(int botCB, int topOOL, float *cbs_per_reading)
 
    fprintf(stderr, "ending...\n");
 
-   //Write samples to file
 
    if (pause) time_sleep(pause);
-
-   //gpioTerminate();
 
    /*int written = fwrite(char_intv, sizeof(char), sizeof(char_intv), fp);
    if (written == 0) printf("Error\n");*/
