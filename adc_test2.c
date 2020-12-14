@@ -18,9 +18,8 @@ a unique MISO line.
 #include <stdlib.h>
 #include <unistd.h>
 //#include <gnuplot.h>
-
-#include <wiringPi.h>
 #include <pigpio.h>
+#include "adc.h"
 
 #define SPI_SS 8 // GPIO for slave select.
 
@@ -40,20 +39,27 @@ a unique MISO line.
 
 #define REPEAT_MICROS 100 // Reading every x microseconds.
 
-#define SAMPLES 500000  // Number of samples to take,
+//#define SAMPLES 500000  // Number of samples to take,
+
+#define NOS 1000 //number of samples per FFT
+#define FS 10000 //tested sampling frequency of roughly 10k
+#define MAX_RUNTIME 60 //60 seconds max runtime
+#define MAX_FFTS 6000 //MAX_RUNTIME * FS /NOS
+#define FLATLINE 40
 
 int MISO[ADCS]={MISO1}; // MISO2, MISO3, MISO4, MISO5};
+float t[MAX_FFTS]; //index is number of FFTs
+float freq_peak[MAX_FFTS]; 
+float accel_peak[MAX_FFTS];
+int count; //number of FFTS
+int flag;
+float start_freq, end_freq;
+float thres_passed; 
+int repeat;
+float count_thres = (float)MAX_FFTS;
+float pos_thres;
 
-rawSPI_t rawSPI =
-{
-   .clk     =  11, // GPIO for SPI clock.
-   .mosi    = 10, // GPIO for SPI MOSI.
-   .ss_pol  =  1, // Slave select resting level.
-   .ss_us   =  1, // Wait 1 micro after asserting slave select.
-   .clk_pol =  0, // Clock resting level.
-   .clk_pha =  0, // 0 sample on first edge, 1 sample on second edge.
-   .clk_us  =  1, // 2 clocks needed per bit so 500 kbps.
-};
+//rfftw_plan plan = rfftw_create_plan(NOS, FFTW_REAL_TO_COMPLEX);
 
 /*
    This function extracts the MISO bits for each ADC and
@@ -86,172 +92,65 @@ void getReading(
    }
 }
 
+/*int fft_algo(int fft_count, int data_arr) {
+	int threshold = 95; //threshold acceleration value in hz/s^2
+	rfftw_one(plan, data_arr, 
 
-int adc()
+}*/
+
+int adc(int botCB, int topOOL, float *cbs_per_reading)
 {
    FILE *fp = fopen("arr_data.txt", "wb");
-   float arr_intv[1000];
+   //float arr_intv[1000];
    char char_intv [8][1000];
-   int i, wid, offset;
-   char buf[2];
-   gpioPulse_t final[2];
+   int i; //, wid , offset;
+   //char buf[2];
+   //gpioPulse_t final[2];
    char rx[8];
    int sample;
+   //float count_thres = (float)MAX_FFTS;
    int val;
-   int cb, botCB, topOOL, reading, now_reading;
-   float cbs_per_reading;
-   rawWaveInfo_t rwi;
+   //int flag = 0; // 1:Threshold met  0:Not met
+   int cb, reading, now_reading;
+   //float cbs_per_reading;
+   //rawWaveInfo_t rwi;
    double start, end;
    int pause;
    double dob_val;
    int s;
-   //double data_arr[1000];
-
-
-   //if (argc > 1) pause = atoi(argv[1]); else pause =0;
-   pause=0;
-
-   //if (gpioInitialise() < 0) return 1;
+   double data_arr[1000];
+   int test;
+   thres_passed = 0.0;
    
-   //set pin for communication between adc and FFT
-   gpioSetMode(26, PI_OUTPUT);
-   gpioWrite(26, 0);
-
-   // Need to set GPIO as outputs otherwise wave will have no effect.
-
-   gpioSetMode(rawSPI.clk,  PI_OUTPUT);
-   gpioSetMode(rawSPI.mosi, PI_OUTPUT);
-   gpioSetMode(SPI_SS,      PI_OUTPUT);
-
-   gpioWaveAddNew(); // Flush any old unused wave data.
-
-   offset = 0;
-
-   /*
-   MCP3202 12-bit ADC 2 channels
-   1  2  3  4  5  6   7   8  9  10 11 12 13 14 15 16 17
-   SB SD OS MS NA B11 B10 B9 B8 B7 B6 B5 B4 B3 B2 B1 B0
-   SB  1  1
-   OS  0  0=ch0, 1=ch1 (in single mode)
-   MS  0  0=tx lsb first after tx msb first
-   MCP3204 modification for single-ended ch0 config
-   SB 1 
-   SD 1
-   D2 X
-   D1 0
-   D0 0
-   */
-
-   /*
-      Now construct lots of bit banged SPI reads.  Each ADC reading
-      will be stored separately.  We need to ensure that the
-      buffer is big enough to cope with any reasonable rescehdule.
-      In practice make the buffer as big as you can.
-   */
-
-   for (i=0; i<BUFFER; i++)
-   {
-      //buf[0] = 0xC0; // Start bit, single ended, channel 0.
-      
-      //Modified for MCP3204: start bit, single ended, channel 0
-      buf[0] = 0xB0;
-
-      rawWaveAddSPI(&rawSPI, offset, SPI_SS, buf, 2, BX, B0, B0);
-
-      /*
-         REPEAT_MICROS must be more than the time taken to
-         transmit the SPI message.
-      */
-
-      offset += REPEAT_MICROS;
-   }
-
-   // Force the same delay after the last reading.
-
-   final[0].gpioOn = 0;
-   final[0].gpioOff = 0;
-   final[0].usDelay = offset;
-
-   final[1].gpioOn = 0; // Need a dummy to force the final delay.
-   final[1].gpioOff = 0;
-   final[1].usDelay = 0;
-
-   gpioWaveAddGeneric(2, final);
-
-   wid = gpioWaveCreate(); // Create the wave from added data.
-
-   if (wid < 0)
-   {
-      fprintf(stderr, "Can't create wave, %d too many?\n", BUFFER);
-      return 1;
-   }
-
-   /*
-      The wave resources are now assigned,  Get the number
-      of control blocks (CBs) so we can calculate which reading
-      is current when the program is running.
-   */
-
-   rwi = rawWaveInfo(wid);
-
-   printf("# cb %d-%d ool %d-%d del=%d ncb=%d nb=%d nt=%d\n",
-      rwi.botCB, rwi.topCB, rwi.botOOL, rwi.topOOL, rwi.deleted,
-      rwi.numCB,  rwi.numBOOL,  rwi.numTOOL);
-
-   /*
-      CBs are allocated from the bottom up.  As the wave is being
-      transmitted the current CB will be between botCB and topCB
-      inclusive.
-   */
-
-   botCB = rwi.botCB;
-
-   /*
-      Assume each reading uses the same number of CBs (which is
-      true in this particular example).
-   */
-
-   cbs_per_reading = (float)rwi.numCB / (float)BUFFER;
-
-   printf("# cbs=%d per read=%.1f base=%d\n",
-      rwi.numCB, cbs_per_reading, botCB);
-
-   /*
-      OOL are allocated from the top down. There are BITS bits
-      for each ADC reading and BUFFER ADC readings.  The readings
-      will be stored in topOOL - 1 to topOOL - (BITS * BUFFER).
-   */
-
-   topOOL = rwi.topOOL;
-
-   fprintf(stderr, "starting...\n");
-
-   if (pause) time_sleep(pause); // Give time to start a monitor.
-
-   gpioWaveTxSend(wid, PI_WAVE_MODE_REPEAT);
-
-   reading = 0;
-
+   //if (argc > 1) pause = atoi(argv[1]); else pause =0;
+   count = 0;
    sample = 0;
-
+   reading = 0;
+   pause=0;
+   start_freq = 0;
+   end_freq = 0;
    start = time_time();
+   repeat = 0;
+   test = repeat;
+   count_thres = (float)MAX_FFTS;
 
-   while (!gpioRead(25)) //(sample<SAMPLES)
+//printf("cbs_per_block: %f %d %d\n", *cbs_per_reading, botCB, topOOL);
+   
+   while (!gpioRead(25) && count <= count_thres) //(sample<SAMPLES)
    {
       // Which reading is current?
 
       cb = rawWaveCB() - botCB;
 
-      now_reading = (float) cb / cbs_per_reading;
+      now_reading = (float) cb / *cbs_per_reading;
 
       // Loop gettting the fresh readings.
       //
       // Do nothing while sensor does no detect
-	gpioWrite(26, 0);
+	//gpioWrite(26, 0);
 
-      while (now_reading != reading)
+      while (now_reading != reading && !gpioRead(25) && count <= count_thres)
       {
-
 	 //Add loop that collects 1000 samples
 
          /*
@@ -260,10 +159,11 @@ int adc()
          */
          getReading(ADCS, MISO, topOOL - ((reading%BUFFER)*BITS) - 1, 2, BITS, rx);
 
-         printf("%d", ++sample);
+	 ++sample;
+         //printf("%d", ++sample);
 
 	 
-
+	 //print reading
          for (i=0; i<ADCS; i++)
          {
             //   7   6  5  4  3  2  1  0 |  7  6  5  4  3  2  1  0
@@ -272,34 +172,40 @@ int adc()
 	    //switched from 4 shifts left to 5 shifts left
             val = (rx[i*2]<<4) + (rx[(i*2)+1]>>4);
 	    dob_val =val * 0.00080566 - 1.65; //value multiplied by resolution (3.3/4096)
-            printf(" %d\t %f",val, dob_val);
-	    //data_arr[sample % 1000] = dob_val;
+            //printf(" %d\t %f",val, dob_val);
 
-	    //store into array 
-	    //arr_intv[i] = dob_val;
-	    //
+	    
 	    s = snprintf(char_intv[i], sizeof(char_intv[i]), "%f", dob_val);
 	    fprintf(fp, "%s\n", char_intv[i]);
 
-	    printf(" %s",char_intv[i]);
+	    //printf(" %s",char_intv[i]);
          }
+	    
+	 //store into array 
+	 data_arr[(sample - 1) % NOS] = dob_val;
 	 
-	 if((sample % 1000) == 999) {
+	 if((sample % NOS) == NOS - 1) {
+		count++;
 	 	//give OK to FFT algorithm		
-		gpioWrite(26, 1); 
+		//if (!flag) {
+			fft_algo(data_arr);
+			//if (flag && repeat < FLATLINE) count_thres = count * 1.75;
+			//else count_thres = count + 1;
+
+		//}
 	 }	
 
-         printf("\n");
+         //printf("\n");
 
          if (++reading >= BUFFER) reading = 0;
       }
       usleep(1000);
    }
-
+   
    end = time_time();
 
    printf("# %d samples in %.1f seconds (%.0f/s)\n",
-      SAMPLES, end-start, (float)SAMPLES/(end-start));
+      sample, end-start, (float)sample/(end-start));
 
    fprintf(stderr, "ending...\n");
 
@@ -312,8 +218,10 @@ int adc()
    /*int written = fwrite(char_intv, sizeof(char), sizeof(char_intv), fp);
    if (written == 0) printf("Error\n");*/
    fclose(fp);
+   
+   //if (repeat >= FLATLINE) printf("Flatlined: %d Test: %d\n", repeat, test);
 
    return 0;
-   gpioWrite(26, 0);
+   //gpioWrite(26, 0);
    printf("Function ends\n");
 }
