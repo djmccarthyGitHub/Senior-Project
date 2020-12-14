@@ -105,12 +105,6 @@ void getReading(
    }
 }
 
-/*int fft_algo(int fft_count, int data_arr) {
-	int threshold = 95; //threshold acceleration value in hz/s^2
-	rfftw_one(plan, data_arr, 
-
-}*/
-
 int adc(int botCB, int topOOL, float *cbs_per_reading)
 {
    FILE *fp = fopen("arr_data.txt", "wb");
@@ -132,7 +126,6 @@ int adc(int botCB, int topOOL, float *cbs_per_reading)
    double dob_val;
    int s;
    double data_arr[1000];
-   int test;
    thres_passed = 0.0;
    
    //if (argc > 1) pause = atoi(argv[1]); else pause =0;
