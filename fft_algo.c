@@ -21,6 +21,8 @@
  * Finally the flatline method is used when the highest frequency 
  * taken has not been passed for 40 samples. The flow is stopped
  * right away.
+ *
+ * This code utilizes the FFTW library to obtain freq_peak and accel_peak values
  */
 
 #include <stdio.h>
