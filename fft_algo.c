@@ -144,5 +144,5 @@ void fft_algo(double data_arr[]) {
 		printf("Accel thres case\tExpected fill time: %f\n", (float)(count_thres * NOS) / (float) FS);
 		flag = 1;
 	}
-	//return flag;
+
 }
