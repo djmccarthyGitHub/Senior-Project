@@ -31,6 +31,7 @@ int flag; //Indicates criteria has been met for dispension halt
 int botCB, topOOL; //values used for ADC
 int opened = 0; //Indicates files stored into FP
 int repeat; //Number of repeat freq_peak values
+int btn; //Used to indicate push dispense 
 float cbs_per_reading; //used for ADC
 
 float freq_peak[MAX_FFTS];
@@ -79,33 +80,35 @@ void motionSensor(int gpio, int level, uint32_t tick)
 	// to files and display graphs 
 	gpioSetISRFunc(17, FALLING_EDGE, 0, NULL);
 	
-	//Store and reset freq_peak and accel_peak values	
-	for (int j = 0; j < count; j++) {
-		fprintf(fp1, "%f\t%f\n", t[j], freq_peak[j]);
-		fprintf(fp2, "%f\t%f\n", t[j], accel_peak[j]);
-		freq_peak[j] = 0;
-		accel_peak[j] = 0;
+	if (opened) {	
+		//Store and reset freq_peak and accel_peak values	
+		for (int j = 0; j < count; j++) {
+			fprintf(fp1, "%f\t%f\n", t[j], freq_peak[j]);
+			fprintf(fp2, "%f\t%f\n", t[j], accel_peak[j]);
+			freq_peak[j] = 0;
+			accel_peak[j] = 0;
+		}
+	
+		fclose(fp1);
+		fclose(fp2);
+	
+		//Plot Acceleration vs Time and Position vs Time
+		fprintf(plot_accel, "set term wxt title 'Acceleration vs Time'\n");
+		fprintf(plot_accel, "set xlabel \"Time (s)\"\n");
+		fprintf(plot_accel, "set ylabel \"Acceleration (Hz/s^2)\"\n");
+		fprintf(plot_accel, "plot 'AvT.txt' w lp\n");
+		fprintf(plot_pos, "set term wxt title 'Position vs Time'\n");
+		fprintf(plot_pos, "set xlabel \"Time (s)\"\n");
+		fprintf(plot_pos, "set ylabel \"Peak Position (Hz)\"\n");
+		fprintf(plot_pos, "plot 'PvT.txt' w lp\n");
+		fclose(plot_accel);
+		fclose(plot_pos);
+		//printf("Start freq: %f\t End freq: %f\n", start_freq, end_freq);
+		//printf("Time crossed: %f\n", thres_passed);
+	
+		//Indicate files have been closed to other processes
+		opened = 0;
 	}
-	
-	fclose(fp1);
-	fclose(fp2);
-	
-	//Plot Acceleration vs Time and Position vs Time
-	fprintf(plot_accel, "set term wxt title 'Acceleration vs Time'\n");
-	fprintf(plot_accel, "set xlabel \"Time (s)\"\n");
-	fprintf(plot_accel, "set ylabel \"Acceleration (Hz/s^2)\"\n");
-	fprintf(plot_accel, "plot 'AvT.txt' w lp\n");
-	fprintf(plot_pos, "set term wxt title 'Position vs Time'\n");
-	fprintf(plot_pos, "set xlabel \"Time (s)\"\n");
-	fprintf(plot_pos, "set ylabel \"Peak Position (Hz)\"\n");
-	fprintf(plot_pos, "plot 'PvT.txt' w lp\n");
-	fclose(plot_accel);
-	fclose(plot_pos);
-	//printf("Start freq: %f\t End freq: %f\n", start_freq, end_freq);
-	//printf("Time crossed: %f\n", thres_passed);
-	
-	//Indicate files have been closed to other processes
-	opened = 0;
 	
 	//Used as another debounce measure
 	//When sensor goes high we do not want it to 
@@ -134,6 +137,7 @@ void motionSensor(int gpio, int level, uint32_t tick)
 		gpioWrite(3, 0);  // turn off LED
 		last_level = level;
 	}
+	    btn = 0; 
     }
 	start = tick;
 }
@@ -143,8 +147,9 @@ void motionSensor(int gpio, int level, uint32_t tick)
 
 void manualButton(int gpio, int level, uint32_t tick)
 {
-    if (level) {
+    if (gpioRead(23)) {
 	gpioSetISRFunc(25, EITHER_EDGE, 0, NULL);
+	btn = 1;
     	printf("Manual Dispense activated\n");
     	gpioWrite(3, 1);  // turn on LED
     	gpioWrite(16, 1); //Start pump
@@ -153,10 +158,25 @@ void manualButton(int gpio, int level, uint32_t tick)
     }
     else {
     	printf("Manual Dispense deactivated\n");
+	//Momentarily disable killswitch ISR
+	//(Prevent multiple manipulations to files)
+	gpioSetISRFunc(17, FALLING_EDGE, 0, NULL);
    	gpioWrite(6, 0);  // Close valve
 	time_sleep(0.1);
     	gpioWrite(16, 0); //Stop pump
     	gpioWrite(3, 0);  // turn off LED
+	//Disable motion sensor ISR
+	gpioSetISRFunc(25, EITHER_EDGE, 0, motionSensor);
+	if (opened) {
+		fclose(fp1);
+		fclose(fp2);
+		fclose(plot_accel);
+		fclose(plot_pos);
+		opened = 0;
+	}
+	//Reset flag and ISRs
+	flag = 0;
+	gpioSetISRFunc(17, FALLING_EDGE, 0, killSwitch);
 	gpioSetISRFunc(25, EITHER_EDGE, 0, motionSensor);
     }
 }
@@ -175,7 +195,7 @@ void killSwitch(int gpio, int level, uint32_t tick)
 			gpioWrite(16, 0); //turn off pump
     			printf("Killswitch engaged, system in standby\n");
     			// save data to file
-			if (opened) {
+			if (opened && !btn) {
 				for (int j = 0; j < count; j++) {
 					fprintf(fp1, "%f\t%f\n", t[j], freq_peak[j]);
 					fprintf(fp2, "%f\t%f\n", t[j], accel_peak[j]);
@@ -217,6 +237,7 @@ void killSwitch(int gpio, int level, uint32_t tick)
 		gpioSetISRFunc(23, EITHER_EDGE, 0, manualButton);
 		printf("Killswitch disengaged, system ready\n");
 	}
+	btn = 0;
 	start_ks = tick;
 }
 
