@@ -72,8 +72,6 @@ int repeat;
 float count_thres = (float)MAX_FFTS;
 float pos_thres;
 
-//rfftw_plan plan = rfftw_create_plan(NOS, FFTW_REAL_TO_COMPLEX);
-
 /*
    This function extracts the MISO bits for each ADC and
    collates them into a reading per ADC.
