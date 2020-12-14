@@ -111,12 +111,6 @@ void fft_algo(double data_arr[]) {
 	if (freq_peak[count] == freq_peak[count-1]) repeat++;
 	else repeat = 0;
 	
-	/*if (accel_peak[count] >= THRESHOLD || repeat >= FLATLINE) {
-		flag = 1;
-	}*/
-	
-	//Store time threshold that passed (test)
-	
 	//Position threshold case
 	//calculated 1.58 from test (adjusted)
 	if (count >= 10 && freq_peak[count] >= pos_thres && count_thres > count * 1.43) { //&& !thres_passed) {
